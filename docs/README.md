@@ -42,7 +42,7 @@ fst-tools/
 - 批量转换
 - 成功率统计
 
-### 3. csv2a3h_improved.py
+### 3. csv2a3h.py
 
 CSV 转 A3H 工具，支持：
 - 自定义输入/输出路径
@@ -91,7 +91,7 @@ MAT 文件提取工具：
 ### 流程一：CSV → A3H
 
 ```
-2026-02-04.csv → csv2a3h_improved.py → *.a3h
+2026-02-04.csv → csv2a3h.py → *.a3h
 ```
 
 ### 流程二：MAT → A3H
