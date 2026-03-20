@@ -134,13 +134,13 @@ def add_header(input_file: str, output_file: str = None,
         print(f"  经度: {lon}")
         print(f"  纬度: {lat}")
         print(f"  高度: {altitude}")
-        print(f"  时间: {time_str}.{ms}")
+        print(f"  时间: {time_str}")
 
     # 构建报文头
     header_lines = [
         "#VERSION 2",
         f"#HOME {lon} {lat} {altitude}",
-        f"#TIME {time_str}.{ms}"
+        f"#TIME {time_str}"
     ]
 
     # 读取原文件内容
@@ -160,7 +160,7 @@ def add_header(input_file: str, output_file: str = None,
         'lon': lon,
         'lat': lat,
         'altitude': altitude,
-        'time': f"{time_str}.{ms}"
+        'time': time_str
     }
 
 

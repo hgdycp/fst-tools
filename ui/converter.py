@@ -144,7 +144,23 @@ class Converter:
         if ext == '.csv':
             return self._get_csv_time_range(file_path)
         elif ext == '.mat':
-            # 需要先提取才能获取时间范围
+            # 对MAT文件，先提取平滑点再获取时间范围
+            try:
+                # 创建临时目录用于提取
+                temp_dir = tempfile.mkdtemp()
+                try:
+                    base_name = os.path.splitext(os.path.basename(file_path))[0]
+                    temp_txt = os.path.join(temp_dir, f"{base_name}_smoothPoints.txt")
+
+                    # 提取平滑点
+                    success = mat_extractor(file_path, temp_txt)
+                    if success and os.path.exists(temp_txt):
+                        return self._get_mat_time_range(temp_txt)
+                finally:
+                    # 清理临时目录
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
             return None, None
         else:
             return None, None
