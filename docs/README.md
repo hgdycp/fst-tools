@@ -7,22 +7,18 @@
 ## 目录结构
 
 ```
-完成工具/
-├── 核心代码/
+fst-tools/
+├── src/
 │   ├── track_parameter_converter.py    # 核心转换器
-│   ├── track_converter_cli.py          # 命令行入口
-│   ├── csv2a3h_improved.py              # CSV→A3H CLI (改进版)
-│   └── csv2a3h.py                       # CSV→A3H CLI (简化版)
-├── 辅助工具/
+│   ├── csv2a3h.py                     # CSV→A3H 转换器
+│   └── merge_messages.py              # 报文合并工具
+├── cli/
+│   └── track_converter_cli.py          # 命令行入口
+├── utils/
 │   ├── extract_smooth_points.py        # MAT→TXT 提取器
-│   └── compare_files.py                 # A3H 文件对比工具
-├── 数据文件/
-│   ├── 2026-02-04.csv                  # 示例 CSV 数据
-│   ├── track_20251210172235.mat        # 示例 MAT 数据
-│   └── track_20251210172235_smoothPoints.txt
-└── 文档/
-    ├── 使用手册.md
-    └── 文档分析.md
+│   └── compare_files.py                # A3H 文件对比工具
+├── data/sample/                        # 示例数据
+└── docs/                              # 文档
 ```
 
 ## 核心功能
@@ -48,23 +44,40 @@
 
 ### 3. csv2a3h_improved.py
 
-CSV 转 A3H 工具 (改进版)，支持：
+CSV 转 A3H 工具，支持：
 - 自定义输入/输出路径
 - GBK 编码流式读写
 - ICAO Hex 有效性校验
 - 多时间戳格式 (second/ms/ns)
 - `$AP` / `$AV` 报文同步输出
 
-### 4. csv2a3h.py
-
-CSV 转 A3H 工具 (简化版)，功能与改进版相同但更简洁，便于调试和对照。
-
-### 5. extract_smooth_points.py
+### 4. extract_smooth_points.py
 
 MAT 文件提取工具：
 - 依赖 `scipy.io` / `numpy`
 - 读取 `trackList` 中的 `smoothPointList`
 - 输出可读的 `*_smoothPoints.txt` 文本
+
+### 5. merge_messages.py
+
+报文合并工具，支持两个子命令：
+
+**merge 子命令** - 合并 ADS-B 和雷达报文
+- 合并 ADS-B 报文 ($AP/$AV) 和雷达报文 ($RD)
+- 按时间戳排序
+- 支持自定义参考日期
+
+**add-header 子命令** - 添加报文头
+- 为报文文件添加文件头信息
+- 自动从第一条 AP 报文获取经纬度和时间
+- 支持自定义参数
+
+输出格式：
+```
+#VERSION 2
+#HOME [经度] [纬度] [高度]
+#TIME [采样时间]
+```
 
 ### 6. compare_files.py
 
@@ -92,25 +105,33 @@ track_*.mat → extract_smooth_points.py → *_smoothPoints.txt
 
 | 报文 | 说明 |
 |------|------|
-| `$RD` | 雷达数据报文 |
-| `$AP` | 位置信息报文 |
-| `$AV` | 速度信息报文 |
+| `$RD` | 雷达数据报文 (track_id, 时间, 距离, 速度, 方位, 经纬度) |
+| `$AP` | ADS-B 位置信息报文 (icao_hex, 时间, 经纬度, 高度) |
 
 ## 使用示例
 
 ```bash
 # CSV 转 A3H
-python csv2a3h_improved.py input.csv output.a3h
+python src/csv2a3h.py input.csv output.a3h
 
 # MAT 转 TXT 再转 A3H
-python extract_smooth_points.py track.mat
-python track_converter_cli.py track_smoothPoints.txt output.a3h
+python src/extract_smooth_points.py track.mat
+python cli/track_converter_cli.py track_smoothPoints.txt output.a3h
+
+# 合并 ADS-B 和雷达报文
+python src/merge_messages.py merge adsb.a3h radar.a3h merged.a3h
+
+# 为报文文件添加报文头 (自动获取参数)
+python src/merge_messages.py add-header merged.a3h
+
+# 为报文文件添加报文头 (自定义参数)
+python src/merge_messages.py add-header merged.a3h --lon 121.9 --lat 24.62 --alt 6400 --time 2026-02-04-17-13-30 --ms 790
 
 # 对比输出
-python compare_files.py output1.a3h output2.a3h
+python utils/compare_files.py output1.a3h output2.a3h
 ```
 
 ## 后续建议
 
-1. 运行 `csv2a3h_improved.py` 与 `track_converter_cli.py`，确认输出 `.a3h` 报文结构符合下游需求
+1. 运行 `csv2a3h.py` 与 `track_converter_cli.py`，确认输出 `.a3h` 报文结构符合下游需求
 2. 如需更多报文格式，可在 `track_parameter_converter.py` 中注册新的 `MessageFormat`
