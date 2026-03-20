@@ -136,20 +136,20 @@ def convert_csv_to_a3h(input_file, output_file):
                 ]
                 writer.writerow(out_row_ap)
 
-                # 生成 $AV 报文
-                out_row_av = [
-                    "$AV",
-                    icao_hex,
-                    formatted_time,
-                    str(ms),
-                    str(ns),
-                    speed,
-                    heading,
-                    speed_ft,
-                    "0",
-                    "0"
-                ]
-                writer.writerow(out_row_av)
+                # 生成 $AV 报文 (已注释，只保留AP报文)
+                # out_row_av = [
+                #     "$AV",
+                #     icao_hex,
+                #     formatted_time,
+                #     str(ms),
+                #     str(ns),
+                #     speed,
+                #     heading,
+                #     speed_ft,
+                #     "0",
+                #     "0"
+                # ]
+                # writer.writerow(out_row_av)
 
         return line_count, processed_lines
 
