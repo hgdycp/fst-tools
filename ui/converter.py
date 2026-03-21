@@ -31,6 +31,8 @@ class FileInfo:
     earliest_time: Optional[datetime] = None
     latest_time: Optional[datetime] = None
     temp_a3h_path: Optional[str] = None
+    earliest_ms: int = 0  # 毫秒时间戳（当天毫秒数）
+    latest_ms: int = 86400000  # 毫秒时间戳（当天毫秒数）
 
 
 class Converter:
@@ -39,6 +41,7 @@ class Converter:
     def __init__(self):
         self.temp_dir = None
         self.files: List[FileInfo] = []
+        self.reference_date: Optional[datetime] = None  # 参考日期（从ADS-B文件获取）
 
     def create_temp_dir(self) -> str:
         """创建临时目录"""
@@ -74,18 +77,28 @@ class Converter:
             # 解析时间范围
             earliest_time, latest_time = self._get_csv_time_range(input_file)
 
+            # 计算毫秒时间戳
+            earliest_ms = self._time_to_ms(earliest_time) if earliest_time else 0
+            latest_ms = self._time_to_ms(latest_time) if latest_time else 86400000
+
             file_info = FileInfo(
                 file_path=input_file,
                 file_type='csv',
                 earliest_time=earliest_time,
                 latest_time=latest_time,
-                temp_a3h_path=output_a3h
+                temp_a3h_path=output_a3h,
+                earliest_ms=earliest_ms,
+                latest_ms=latest_ms
             )
 
             return True, "", file_info
 
         except Exception as e:
             return False, str(e), None
+
+    def _time_to_ms(self, dt: datetime) -> int:
+        """将 datetime 转换为当天毫秒数"""
+        return dt.hour * 3600000 + dt.minute * 60000 + dt.second * 1000
 
     def process_mat(self, input_file: str, temp_dir: str) -> Tuple[bool, str, Optional[FileInfo]]:
         """
@@ -116,12 +129,18 @@ class Converter:
             # 解析时间范围
             earliest_time, latest_time = self._get_mat_time_range(temp_txt)
 
+            # 计算毫秒时间戳
+            earliest_ms = self._time_to_ms(earliest_time) if earliest_time else 0
+            latest_ms = self._time_to_ms(latest_time) if latest_time else 86400000
+
             file_info = FileInfo(
                 file_path=input_file,
                 file_type='mat',
                 earliest_time=earliest_time,
                 latest_time=latest_time,
-                temp_a3h_path=output_a3h
+                temp_a3h_path=output_a3h,
+                earliest_ms=earliest_ms,
+                latest_ms=latest_ms
             )
 
             return True, "", file_info
@@ -129,12 +148,14 @@ class Converter:
         except Exception as e:
             return False, str(e), None
 
-    def get_time_range(self, file_path: str) -> Tuple[Optional[datetime], Optional[datetime]]:
+    def get_time_range(self, file_path: str,
+                      ref_date: Optional[datetime] = None) -> Tuple[Optional[datetime], Optional[datetime]]:
         """
         获取文件的时间范围
 
         Args:
             file_path: 文件路径
+            ref_date: 参考日期（用于MAT文件，使其日期与ADS-B保持一致）
 
         Returns:
             (earliest_time, latest_time)
@@ -142,7 +163,11 @@ class Converter:
         ext = os.path.splitext(file_path)[1].lower()
 
         if ext == '.csv':
-            return self._get_csv_time_range(file_path)
+            result = self._get_csv_time_range(file_path)
+            # 如果获取到时间，更新参考日期
+            if result[0] and (ref_date is None or self.reference_date is None):
+                self.reference_date = result[0]
+            return result
         elif ext == '.mat':
             # 对MAT文件，先提取平滑点再获取时间范围
             try:
@@ -155,7 +180,9 @@ class Converter:
                     # 提取平滑点
                     success = mat_extractor(file_path, temp_txt)
                     if success and os.path.exists(temp_txt):
-                        return self._get_mat_time_range(temp_txt)
+                        # 优先使用传入的ref_date，否则使用self.reference_date
+                        effective_ref_date = ref_date if ref_date else self.reference_date
+                        return self._get_mat_time_range(temp_txt, effective_ref_date)
                 finally:
                     # 清理临时目录
                     shutil.rmtree(temp_dir, ignore_errors=True)
@@ -192,8 +219,15 @@ class Converter:
         except Exception:
             return None, None
 
-    def _get_mat_time_range(self, txt_file: str) -> Tuple[Optional[datetime], Optional[datetime]]:
-        """获取MAT文件(转换后TXT)的时间范围"""
+    def _get_mat_time_range(self, txt_file: str,
+                           ref_date: Optional[datetime] = None) -> Tuple[Optional[datetime], Optional[datetime]]:
+        """
+        获取MAT文件(转换后TXT)的时间范围
+
+        Args:
+            txt_file: TXT文件路径
+            ref_date: 参考日期（用于将MAT文件的时间与ADS-B日期对齐）
+        """
         try:
             import numpy as np
 
@@ -215,9 +249,15 @@ class Converter:
                         dt = datetime.fromordinal(python_days)
                         fractional = time_val - matlab_days
                         seconds = int(fractional * 86400)
-                        dt = dt.replace(hour=seconds // 3600,
-                                      minute=(seconds % 3600) // 60,
-                                      second=seconds % 60)
+                        hour = seconds // 3600
+                        minute = (seconds % 3600) // 60
+                        second = seconds % 60
+
+                        # 如果有参考日期，使用参考日期的yyyy/mm/dd，只保留MAT的时分秒
+                        if ref_date:
+                            dt = ref_date.replace(hour=hour, minute=minute, second=second)
+                        else:
+                            dt = dt.replace(hour=hour, minute=minute, second=second)
                         times.append(dt)
                     except (ValueError, IndexError):
                         pass
@@ -229,16 +269,19 @@ class Converter:
         except Exception:
             return None, None
 
-    def merge_and_header(self, temp_dir: str, output_path: str) -> Tuple[bool, str]:
+    def merge_and_header(self, temp_dir: str, output_path: str,
+                        start_ms: int = 0, end_ms: int = 86400000) -> Tuple[bool, str, int]:
         """
         合并临时目录中的所有A3H文件并添加报文头
 
         Args:
             temp_dir: 临时目录路径
             output_path: 输出文件路径
+            start_ms: 合并起始时间（毫秒，当天毫秒数）
+            end_ms: 合并结束时间（毫秒，当天毫秒数）
 
         Returns:
-            (success, error_message)
+            (success, error_message, filtered_count)
         """
         try:
             # 查找所有.a3h文件
@@ -246,7 +289,7 @@ class Converter:
                         if f.endswith('.a3h')]
 
             if not a3h_files:
-                return False, "没有找到要合并的A3H文件"
+                return False, "没有找到要合并的A3H文件", 0
 
             # 读取并合并所有报文
             all_messages = []
@@ -262,24 +305,34 @@ class Converter:
                     all_messages.extend(radar_msgs)
 
             if not all_messages:
-                return False, "没有找到有效的报文数据"
+                return False, "没有找到有效的报文数据", 0
 
             # 按时间戳排序
             all_messages.sort(key=lambda m: m.timestamp_ms)
 
+            # 按时间范围过滤报文
+            filtered_messages = [
+                msg for msg in all_messages
+                if start_ms <= msg.timestamp_ms <= end_ms
+            ]
+            filtered_count = len(filtered_messages)
+
+            if not filtered_messages:
+                return False, "没有在指定时间范围内的报文", 0
+
             # 写入合并后的文件
             merged_file = os.path.join(temp_dir, "merged.a3h")
             with open(merged_file, 'w', encoding='gbk', newline='') as f:
-                for msg in all_messages:
+                for msg in filtered_messages:
                     f.write(msg.raw + '\n')
 
             # 添加报文头
             add_header(merged_file, output_path, encoding='gbk', verbose=False)
 
-            return True, ""
+            return True, "", filtered_count
 
         except Exception as e:
-            return False, str(e)
+            return False, str(e), 0
 
 
 def get_file_time_range(file_path: str) -> Tuple[Optional[datetime], Optional[datetime]]:
